@@ -21,14 +21,8 @@ class Particle:
         self.name = name
         self.radius = radius
         self.merged = False
-        self.state = State(np.random.rand(
-            2,), np.random.randint(0, 300, 2) / 20)
-
-
-class State:
-    def __init__(self, position, velocity):
-        self._position = position
-        self._velocity = velocity
+        self.position = np.random.randint(2,)
+        self.velocity = np.random.randint(0, 300, 2) / 20
 
 
 class Derivative:
@@ -54,8 +48,8 @@ class Universe:
             handler.update(dt)
 
     def get_distance(self, particle1, particle2):
-        position1 = particle1.state._position
-        position2 = particle2.state._position
+        position1 = particle1.position
+        position2 = particle2.position
         distance = np.linalg.norm(position2 - position1)
         return distance
 
@@ -76,12 +70,12 @@ class Universe:
         if particle1.mass < particle2.mass:
             particle1, particle2 = particle2, particle1
         particle2.merged = True
-        new_velocity = (particle1.state._velocity * particle1.mass +
-                        particle2.state._velocity * particle2.mass) / (
+        new_velocity = (particle1.velocity * particle1.mass +
+                        particle2.velocity * particle2.mass) / (
                             particle1.mass + particle2.mass)
         particle1.mass += particle2.mass
         self.set_radius_from_mass(particle1)
-        particle1.state._velocity = new_velocity
+        particle1.velocity = new_velocity
 
     def set_mass_from_radius(self, particle):
         particle.mass = DENSITY * 4. * math.pi * (particle.radius ** 3) / 3
@@ -96,12 +90,12 @@ class HandleParticle(Universe):
         self.particle = particle
         self.particle_list = particle_list
 
-    def acceleration(self, state):
+    def acceleration(self, arg_position):
         acceleration = np.zeros([2])
         for other in self.particle_list:
             if self.particle is other or self.particle.merged:
                 continue
-            position = other.state._position - state._position
+            position = other.position - arg_position
             distance_squared = np.square(position)
             distance_sum = np.sum(distance_squared)
             distance = np.sqrt(distance_sum)
@@ -111,15 +105,14 @@ class HandleParticle(Universe):
         return acceleration
 
     def initial_derivative(self):
-        acceleration = self.acceleration(self.particle.state)
-        return Derivative(self.particle.state._velocity, acceleration)
+        acceleration = self.acceleration(self.particle.position)
+        return Derivative(self.particle.velocity, acceleration)
 
     def next_derivative(self, derivative, dt):
-        state = State(np.array([0., 0.]), np.array([0., 0.]))
-        state._position = self.particle.state._position + derivative._velocity * dt
-        state._velocity = self.particle.state._velocity + derivative._acceleration * dt
-        acceleration = self.acceleration(state)
-        return Derivative(state._velocity, acceleration)
+        position = self.particle.position + derivative._velocity * dt
+        velocity = self.particle.velocity + derivative._acceleration * dt
+        acceleration = self.acceleration(position)
+        return Derivative(velocity, acceleration)
 
     def update(self, dt):
         k1 = self.initial_derivative()
@@ -132,8 +125,8 @@ class HandleParticle(Universe):
         acceleration = (1 / 6) * (k1._acceleration + 2
                                   * (k2._acceleration + k3._acceleration)
                                   + k4._acceleration)
-        self.particle.state._position += velocity * dt
-        self.particle.state._velocity += acceleration * dt
+        self.particle.position += velocity * dt
+        self.particle.velocity += acceleration * dt
 
 
 def main_game():
@@ -154,14 +147,14 @@ def main_game():
     for i in range(20):
         radius = random.randint(2, 3)
         planets.append(Particle("planet{}".format(i), radius))
-        planets[i].state._position = np.array(
+        planets[i].position = np.array(
             [random.randint(1, WIDTH), random.randint(1, HEIGHT)], dtype='float64')
         universe.add_body(planets[i])
-        print(planets[i].state._position)
+        print(planets[i].position)
     # allsprites = pygame.sprite.RenderPlain((moon, earth))
     sun = Particle("sun", 15)
-    sun.state._position = np.array([WIDTHD2, HEIGHTD2], dtype='float64')
-    sun.state._velocity = np.array([0, 0])
+    sun.position = np.array([WIDTHD2, HEIGHTD2], dtype='float64')
+    sun.velocity = np.array([0, 0])
     universe.add_body(sun)
     sun.mass = 1000
     universe.set_radius_from_mass(sun)
@@ -192,7 +185,7 @@ def main_game():
             if particles:
                 universe.merge(particles)
             if not planet.merged:
-                position = planet.state._position.astype(int)
+                position = planet.position.astype(int)
                 radius = planet.radius
                 pygame.draw.circle(
                     screen, (255, 255, 255),
