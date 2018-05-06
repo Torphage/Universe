@@ -194,11 +194,10 @@ def main_game():
             if not planet.merged:
                 position = planet.state._position.astype(int)
                 radius = planet.radius
-                # print(earth.state._position)
-                # print(radius)
                 pygame.draw.circle(
                     screen, (255, 255, 255),
-                    (TEST + zoom * TEST * (position - TEST) / TEST).astype(int).tolist(),
+                    (TEST + zoom * TEST * (position - TEST) /
+                     TEST).astype(int).tolist(),
                     int(radius * zoom))
 
         ScanKeyboard()
@@ -215,17 +214,6 @@ def main_game():
             while keysPressed[pygame.K_SPACE]:
                 ScanKeyboard()
             bClearScreen = not bClearScreen
-        # while True:
-        #     event = pygame.event.poll()
-        #     if event.type == NOEVENT:
-        #         break
-        #     if event.type == QUIT:
-        #         sys.exit()
-        #     elif event.type in [KEYDOWN, KEYUP]:
-        #         if event.key == K_KP_PLUS:
-        #             zoom /= 0.99
-        #         if event.key == K_KP_MINUS:
-        #             zoom /= 1.01
 
 
 if __name__ == '__main__':
