@@ -1,22 +1,28 @@
 """Game."""
+import math
+import random
 import sys
+from collections import defaultdict
 
 import numpy as np
 import pygame
 from pygame.locals import *
 from scipy import constants
 
+DENSITY = 0.001
 
-class Particle(pygame.sprite.Sprite):
-    def __init__(self, name, mass, position, velocity, acceleration):
-        pygame.sprite.Sprite.__init__(self)
+WIDTH, HEIGHT = 900, 600
+WIDTHD2, HEIGHTD2 = WIDTH / 2., HEIGHT / 2.
+TEST = np.array([WIDTHD2, HEIGHTD2])
+
+
+class Particle:
+    def __init__(self, name, radius):
         self.name = name
-        self.mass = mass
-        self.position = position
-        self.velocity = velocity
-        self.acceleration = acceleration
+        self.radius = radius
         self.merged = False
-        self.state = State(np.random.rand(2,), np.random.rand(2,))
+        self.state = State(np.random.rand(
+            2,), np.random.randint(0, 300, 2) / 20)
 
 
 class State:
@@ -34,15 +40,55 @@ class Derivative:
 class Universe:
     def __init__(self):
         self.particle_list = list()
-        self.dt = 1
 
     def add_body(self, particle):
+        self.set_mass_from_radius(particle)
         self.particle_list.append(particle)
 
-    def update_particles(self):
+    def update_particles(self, dt):
         for particle in self.particle_list:
-            handler = HandleParticle(particle, self.particle_list)
-            handler.update(self.dt)
+            if particle.merged or particle.name == 'sun':
+                continue
+            handler = HandleParticle(
+                particle, self.particle_list)
+            handler.update(dt)
+
+    def get_distance(self, particle1, particle2):
+        position1 = particle1.state._position
+        position2 = particle2.state._position
+        distance = np.linalg.norm(position2 - position1)
+        return distance
+
+    def merge_range(self, particle):
+        if not particle.merged:
+            for other in self.particle_list:
+                if particle is other or other.merged:
+                    continue
+                distance = self.get_distance(particle, other)
+                widths = particle.radius + other.radius
+                if distance <= widths:
+                    return [particle, other]
+        return False
+
+    def merge(self, particles):
+        particle1 = particles[0]
+        particle2 = particles[1]
+        if particle1.mass < particle2.mass:
+            particle1, particle2 = particle2, particle1
+        particle2.merged = True
+        new_velocity = (particle1.state._velocity * particle1.mass +
+                        particle2.state._velocity * particle2.mass) / (
+                            particle1.mass + particle2.mass)
+        particle1.mass += particle2.mass
+        self.set_radius_from_mass(particle1)
+        particle1.state._velocity = new_velocity
+
+    def set_mass_from_radius(self, particle):
+        particle.mass = DENSITY * 4. * math.pi * (particle.radius ** 3) / 3
+
+    def set_radius_from_mass(self, particle):
+        particle.radius = (3. * particle.mass /
+                           (DENSITY * 4. * math.pi)) ** (0.3333)
 
 
 class HandleParticle(Universe):
@@ -51,7 +97,7 @@ class HandleParticle(Universe):
         self.particle_list = particle_list
 
     def acceleration(self, state):
-        acceleration = np.zeros([2, 2])
+        acceleration = np.zeros([2])
         for other in self.particle_list:
             if self.particle is other or self.particle.merged:
                 continue
@@ -59,39 +105,40 @@ class HandleParticle(Universe):
             distance_squared = np.square(position)
             distance_sum = np.sum(distance_squared)
             distance = np.sqrt(distance_sum)
-            force = (self.particle.mass *
-                     other.mass) / distance_squared
+            force = (1000 * self.particle.mass *
+                     other.mass) / distance_sum
             acceleration += (force * position) / distance
         return acceleration
 
-    def initial_derivative(self, state):
-        acceleration = self.acceleration(state)
-        return Derivative(state._velocity, acceleration)
+    def initial_derivative(self):
+        acceleration = self.acceleration(self.particle.state)
+        return Derivative(self.particle.state._velocity, acceleration)
 
-    def next_derivative(self, initial_state, derivative, dt):
+    def next_derivative(self, derivative, dt):
         state = State(np.array([0., 0.]), np.array([0., 0.]))
-        state._position = initial_state._position + derivative._velocity * dt
-        state._velocity = initial_state._velocity + derivative._acceleration * dt
+        state._position = self.particle.state._position + derivative._velocity * dt
+        state._velocity = self.particle.state._velocity + derivative._acceleration * dt
         acceleration = self.acceleration(state)
         return Derivative(state._velocity, acceleration)
 
     def update(self, dt):
-        k1 = self.initial_derivative(self.particle.state)
-        k2 = self.next_derivative(self.particle.state, k1, dt * 0.5)
-        k3 = self.next_derivative(self.particle.state, k2, dt * 0.5)
-        k4 = self.next_derivative(self.particle.state, k3, dt)
-        velocity = (1 / 6) * (k1._velocity + 2 *
-                              (k2._velocity + k3._velocity) + k4._velocity)
-        acceleration = (1 / 6) * (k1._acceleration + 2 *
-                                  (k2._acceleration
-                                   + k3._acceleration) + k4._acceleration)
-        self.particle.state._position = velocity * dt
-        self.particle.state._velocity = acceleration * dt
+        k1 = self.initial_derivative()
+        k2 = self.next_derivative(k1, dt * 0.5)
+        k3 = self.next_derivative(k2, dt * 0.5)
+        k4 = self.next_derivative(k3, dt)
+        velocity = (1 / 6) * (k1._velocity + 2
+                              * (k2._velocity + k3._velocity)
+                              + k4._velocity)
+        acceleration = (1 / 6) * (k1._acceleration + 2
+                                  * (k2._acceleration + k3._acceleration)
+                                  + k4._acceleration)
+        self.particle.state._position += velocity * dt
+        self.particle.state._velocity += acceleration * dt
 
 
 def main_game():
     pygame.init()
-    screen = pygame.display.set_mode((960, 960))
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption('Spaaaaaaace')
     pygame.mouse.set_visible(0)
 
@@ -102,72 +149,83 @@ def main_game():
     screen.blit(background, (0, 0))
     pygame.display.flip()
 
-
-
-    earth = Particle('Earth', 53232, np.random.rand(2,), np.random.rand(2,), np.random.rand(2,))
-    earth.position = np.array([120, 480], dtype='float64')
-    moon = Particle('Moon', 9333222233, np.random.rand(2,), np.random.rand(2,), np.random.rand(2,))
-    moon.position = np.array([480, 480], dtype='float64')
-
     universe = Universe()
-    universe.add_body(earth)
-    universe.add_body(moon)
-    allsprites = pygame.sprite.RenderPlain((moon, earth))
-    clock = pygame.time.Clock()
+    planets = list()
+    for i in range(20):
+        radius = random.randint(2, 3)
+        planets.append(Particle("planet{}".format(i), radius))
+        planets[i].state._position = np.array(
+            [random.randint(1, WIDTH), random.randint(1, HEIGHT)], dtype='float64')
+        universe.add_body(planets[i])
+        print(planets[i].state._position)
+    # allsprites = pygame.sprite.RenderPlain((moon, earth))
+    sun = Particle("sun", 15)
+    sun.state._position = np.array([WIDTHD2, HEIGHTD2], dtype='float64')
+    sun.state._velocity = np.array([0, 0])
+    universe.add_body(sun)
+    sun.mass = 1000
+    universe.set_radius_from_mass(sun)
+    planets.append(sun)
 
-    earth_x, earth_y = earth.position
-    earth.velocity = np.array([0, 200], dtype='float64')
-    earth_x *= 960
-    earth_y *= 960
+    zoom = 1.0
+    dt = 1
 
-    planets = [earth, moon]
+    keysPressed = defaultdict(bool)
 
-    BLACK = (0, 0, 0)
-    WHITE = (255, 255, 255)
-    GREEN = (0, 255, 0)
-    RED = (255, 0, 0)
-
+    def ScanKeyboard():
+        while True:
+            # Update the keysPressed state:
+            evt = pygame.event.poll()
+            if evt.type == pygame.NOEVENT:
+                break
+            elif evt.type in [pygame.KEYDOWN, pygame.KEYUP]:
+                keysPressed[evt.key] = evt.type == pygame.KEYDOWN
+    bClearScreen = True
     while True:
-        clock.tick(60)
-        screen.fill((255, 255, 255))
+        if bClearScreen:
+            screen.fill((0, 0, 0))
 
-        # for i, planet in enumerate(planets):
-        #     for j, other_planet in enumerate(planets):
-        #         if planet != other_planet:
-        #             print(planet.position)
-        #             universe.force_g(planet, other_planet)
+        universe.update_particles(dt)
 
-        #     universe.update(planet)
-        universe.update_particles()
-        print(earth.position)
-        # earth.position += universe.total_vectors(earth, moon)
-        # earth.velocity = universe.total_vectors(earth, moon)
+        for planet in planets:
+            particles = universe.merge_range(planet)
+            if particles:
+                universe.merge(particles)
+            if not planet.merged:
+                position = planet.state._position.astype(int)
+                radius = planet.radius
+                # print(earth.state._position)
+                # print(radius)
+                pygame.draw.circle(
+                    screen, (255, 255, 255),
+                    (TEST + zoom * TEST * (position - TEST) / TEST).astype(int).tolist(),
+                    int(radius * zoom))
 
-        # earth_x, earth_y = earth.position
-        # moon_x, moon_y = moon.position
-
-        # earth_xv, earth_yv = earth.velocity
-        # print(earth.velocity)
-        position = earth.position.astype(int)
-        print(position)
-        pygame.draw.circle(screen, RED, position.tolist(), 5)
-        position = moon.position.astype(int)
-        pygame.draw.circle(screen, RED, position.tolist(), 10)
+        ScanKeyboard()
 
         pygame.display.flip()
-        for event in pygame.event.get():
-            if event.type == QUIT:
-                sys.exit()
-            elif event.type == KEYDOWN and event.key == K_ESCAPE:
-                return
-            elif event.type == MOUSEBUTTONDOWN:
-                if fist.punch(chimp):
-                    punch_sound.play()  # punch
-                    chimp.punched()
-                else:
-                    whiff_sound.play()  # miss
-            elif event.type == MOUSEBUTTONUP:
-                fist.unpunch()
+        # for event in pygame.event.get():
+        if keysPressed[pygame.K_KP_PLUS]:
+            zoom /= 0.99
+        if keysPressed[pygame.K_KP_MINUS]:
+            zoom /= 1.01
+        if keysPressed[pygame.K_ESCAPE]:
+            break
+        if keysPressed[pygame.K_SPACE]:
+            while keysPressed[pygame.K_SPACE]:
+                ScanKeyboard()
+            bClearScreen = not bClearScreen
+        # while True:
+        #     event = pygame.event.poll()
+        #     if event.type == NOEVENT:
+        #         break
+        #     if event.type == QUIT:
+        #         sys.exit()
+        #     elif event.type in [KEYDOWN, KEYUP]:
+        #         if event.key == K_KP_PLUS:
+        #             zoom /= 0.99
+        #         if event.key == K_KP_MINUS:
+        #             zoom /= 1.01
 
 
 if __name__ == '__main__':
